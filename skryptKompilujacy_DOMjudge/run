@@ -1,0 +1,114 @@
+#!/bin/bash
+
+# C++ compile wrapper-script for 'compile.sh'.
+# See that script for syntax and more info.
+
+DEST="$1" ; shift
+MEMLIMIT="$1" ; shift
+
+# Add -DONLINE_JUDGE or -DDOMJUDGE below if you want it make easier for teams
+# to do local debugging.
+
+
+############################################ functions (my):
+WARNINGS=0
+
+function echoerr
+{
+	echo "-------------------- $@" 1>&2
+	((WARNINGS++))
+}
+
+function getCppSources
+{
+    for filename; do
+        file_extention=${filename##*.}
+        [ ${file_extention:0:1} == "c" ] && echo -n "$filename "
+    done
+    echo ''
+}
+
+function getGccWarningFlags
+{
+	# explaination of flags: https://gcc.gnu.org/onlinedocs/gcc/Warning-Options.html#Warning-Options
+	# https://gcc.gnu.org/onlinedocs/gcc/Invoking-GCC.html
+
+	#echo '-Wall -Wextra -Wpedantic -Warray-bounds=1 -Wduplicate-decl-specifier -Wenum-compare -Wimplicit -Wimplicit-int -Wimplicit-function-declaration -Winit-self -Wmain -Wmissing-braces -Wnarrowing -Wmissing-parameter-type -Wold-style-declaration -Wsign-compare -Wshift-negative-value -Wchkp -Wdouble-promotion -Wformat-overflow=2 -Wformat=2 -Wformat-security -Wformat-signedness -Wformat-truncation=2 -Wformat-y2k -Wnull-dereference -fdelete-null-pointer-checks -Wimplicit-fallthrough=5 -Wmisleading-indentation -Wmissing-braces -Wmissing-include-dirs -Wshift-negative-value -Wshift-overflow=2 -Wswitch-default -Wswitch-enum -Wsync-nand -Wunused -Wunused-but-set-parameter -Wunused-parameter -Wunused-const-variable -Wuninitialized -Winit-self -Wstringop-overflow=4 -Wsuggest-attribute=const -Wsuggest-final-types -Wsuggest-final-methods -Walloc-zero -Warray-bounds=2 -Wduplicated-branches -Wduplicated-cond -Wtrampolines -Wfloat-equal -Wtraditional-conversion -Wshadow -Wshadow=local -Wshadow=compatible-local -Wundef -Wunused -Wunused-macros -Wbad-function-cast -Wcast-qual -Wcast-align -Wwrite-strings -Wconversion -Wdangling-else -Wjump-misses-init -Wfloat-conversion -Wno-pointer-sign -Wsizeof-pointer-memaccess -Wmemset-elt-size -Wmemset-transposed-args -Waddress -Wlogical-op -Wlogical-not-parentheses -Wstrict-prototypes -Wold-style-definition -Wnormalized=nfkc -Wpacked -Wredundant-decls -Winline -Winvalid-pch -Wno-long-long -Wvector-operation-performance -Wvla -Woverlength-strings -Wunsuffixed-float-constants -Wstack-protector -Wno-format-nonliteral'
+	echo '-Wall -Wextra -Wpedantic -Weffc++'
+}
+
+function checkIfInFileIsInvalidInclude
+{
+    if [ "$#" -lt 2 ]; then
+      echoerr 'No args provided!'
+      return
+    fi
+    
+    file=$1
+    invalidInclude=$2
+        
+    output=$(cat "$file" |  grep -E "#include[[:space:]]*<${invalidInclude}>")
+        
+    if [ -n "$output" ]; then
+        echoerr "The file '$file' can not include header $invalidInclude! Please remove the include and try again."
+        exit 1
+    fi
+}
+
+function mainFunctionIncluded
+{
+	lineWithMain=$(ctags -x --c++-types=f --extra=q --format=1 ${@} | grep -v '::' | cut -d' ' -f1 | grep -P '^main$')
+
+	if [ -z "$lineWithMain" ]; then
+		echo 'false'
+	else
+		echo 'true'
+	fi
+}  # TODO: dodac sprawdzenie czy nie zalaczono innej funkcji main, oczywiscie wpierw czy zalaczono jakiekolwiek zrodla
+
+function runCppcheck4CppCode
+{
+    cppcheck -DONLINE_JUDGE -DDOMJUDGE --std=c++17 --language=c++ --force --enable=warning,performance,unusedFunction,style,information --template=gcc --inline-suppr --library=gnu.cfg --library=gtk.cfg --library=std.cfg --library=cppcheck-lib.cfg --library=motif.cfg --library=qt.cfg --library=windows.cfg --library=sdl.cfg --library=gnu.cfg --library=wxwidgets.cfg --library=sfml.cfg --library=posix.cfg --library=embedded_sql.cfg --library=avr.cfg --suppress=missingIncludeSystem $@ > /dev/null
+}
+
+cppSources=$(getCppSources "$@")
+cppHeaders=$(ls *.h)
+
+#######################################################
+checkIfInFileIsInvalidInclude $cppHeaders 'cmath'
+checkIfInFileIsInvalidInclude $cppHeaders 'string'
+checkIfInFileIsInvalidInclude $cppHeaders 'algorithm'
+
+### CZEKAMY NA CPPCHECK I CTAGS
+# if [ "$(mainFunctionIncluded $cppHeaders $cppSources)" -eq 'true']; then
+#     echoerr "main() function attached! It may cause linking problems!"
+# fi
+
+# if [ -z "$ENTRY_POINT" ]; then
+# 	echo "Info: no ENTRY_POINT provided, assuming 'Main'."
+# else
+# 	echo "Info: ENTRY_POINT = ${ENTRY_POINT}"
+# fi
+
+
+gccWarningFlags="$(getGccWarningFlags)"
+
+includePath=$(pwd)
+
+SCRIPTPATH=$(readlink -f $(dirname "$SCRIPT"))
+path2TestFiles="$(dirname $(readlink -f $0))"
+
+allFlags=" --std=c++17 -x c++ ${gccWarningFlags} -g -rdynamic -pipe -frecord-gcc-switches -DONLINE_JUDGE -DDOMJUDGE -I${includePath}"
+testFiles=$(ls "${path2TestFiles}/"*Tests.cpp)
+
+test_files="${testFiles} ${path2TestFiles}/main.cpp"
+command="g++ ${allFlags} $cppSources $test_files -o $DEST -lm -pthread -lgtest -ldl"
+echo "[I] Compilling with command: $command"
+$command
+
+status=$?
+
+### CZEKAMY NA CPPCHECK I CTAGS
+# runCppcheck4CppCode $cppHeaders $cppSources
+
+exit $status
